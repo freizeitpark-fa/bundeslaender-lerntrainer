@@ -1,24 +1,15 @@
-const CACHE='bundeslaender-trainer-offline-v1';
-const ASSETS=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
-});
-self.addEventListener('activate', event => {
-  event.waitUntil(Promise.all([
-    caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('bundeslaender-trainer-offline-') && k !== CACHE).map(k => caches.delete(k)))),
-    self.clients.claim()
-  ]));
-});
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
-  const url = new URL(event.request.url);
-  if(url.origin !== self.location.origin || !url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
-  if (event.request.mode === 'navigate') {
-    event.respondWith(fetch(event.request).then(response => {
-      if(response.ok){const copy=response.clone();caches.open(CACHE).then(c=>c.put('./index.html',copy));}
-      return response;
-    }).catch(() => caches.match('./index.html')));
-  } else {
-    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request)));
-  }
+const CACHE='bundeslaender-trainer-offline-v3';
+const ASSETS=['./','./index.html','./manifest.webmanifest','./icon-192.png','./icon-512.png','./sw.js'];
+const FLAGS=["https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Baden-W%C3%BCrttemberg.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Bavaria_%28lozengy%29.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Berlin.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Brandenburg.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Bremen.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Hamburg.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Hesse.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Mecklenburg-Western_Pomerania.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Lower_Saxony.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_North_Rhine-Westphalia.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Rhineland-Palatinate.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Saarland.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Saxony.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Saxony-Anhalt.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Schleswig-Holstein.svg", "https://commons.wikimedia.org/wiki/Special:FilePath/Flag_of_Thuringia.svg"];
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('bundeslaender-trainer-offline-')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim();})()));
+async function flagsStatus(client){const c=await caches.open(CACHE);const states=await Promise.all(FLAGS.map(x=>c.match(x)));client.postMessage({type:'FLAGS_STATUS',done:states.filter(Boolean).length,total:FLAGS.length});}
+let activeDownload=null;
+async function cacheFlags(client){if(activeDownload){await activeDownload;await flagsStatus(client);return;}
+activeDownload=(async()=>{const cache=await caches.open(CACHE);for(const url of FLAGS){try{if(!await cache.match(url)){const req=new Request(url,{mode:'no-cors',credentials:'omit'});const response=await fetch(req);if(response.ok||response.type==='opaque')await cache.put(req,response);}}catch(e){}await flagsStatus(client);}})();try{await activeDownload;}finally{activeDownload=null;}}
+self.addEventListener('message',event=>{if(event.data?.type==='CACHE_FLAGS'&&event.source){event.waitUntil(cacheFlags(event.source));}});
+self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;const url=new URL(event.request.url);const appScope=new URL(self.registration.scope);const isLocal=url.origin===appScope.origin&&url.pathname.startsWith(appScope.pathname);
+const isFlag=FLAGS.includes(url.href);if(!isLocal&&!isFlag)return;
+if(event.request.mode==='navigate'&&isLocal){event.respondWith(fetch(event.request).then(response=>{if(response.ok){const copy=response.clone();caches.open(CACHE).then(c=>c.put('./index.html',copy));}return response;}).catch(()=>caches.match('./index.html')));return;}
+event.respondWith(caches.match(event.request).then(hit=>hit||fetch(event.request).then(response=>{if(response.ok||response.type==='opaque'){const copy=response.clone();caches.open(CACHE).then(c=>c.put(event.request,copy)).catch(()=>{});}return response;})));
 });
